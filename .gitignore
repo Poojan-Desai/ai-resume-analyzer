@@ -1,5 +1,6 @@
 # Python
 backend/.venv/
+backend/.audit-venv/
 backend/__pycache__/
 backend/**/__pycache__/
 backend/*.db
