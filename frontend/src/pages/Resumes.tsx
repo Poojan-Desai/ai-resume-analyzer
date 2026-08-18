@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
+import {
+  AIProviderControls,
+  type AIProvider,
+} from '../components/AIProviderControls'
 import type { Resume, ResumeFeedback, ResumeListItem } from '../types'
 
 /**
@@ -11,8 +15,15 @@ export function ResumesPage() {
   const [detail, setDetail] = useState<Resume | null>(null)
   const [feedbacks, setFeedbacks] = useState<ResumeFeedback[]>([])
   const [targetRole, setTargetRole] = useState('')
+  const [provider, setProvider] = useState<AIProvider>('local')
+  const [consent, setConsent] = useState(false)
+  const [allowFallback, setAllowFallback] = useState(true)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const activeRequest = useRef<{
+    id: string
+    controller: AbortController
+  } | null>(null)
 
   const refreshList = useCallback(() => {
     api
@@ -65,21 +76,52 @@ export function ResumesPage() {
     if (!selectedId) return
     setLoading(true)
     setMsg(null)
+    const requestId = crypto.randomUUID()
+    const controller = new AbortController()
+    activeRequest.current = { id: requestId, controller }
     try {
-      await api.post(`/api/resumes/${selectedId}/analyze`, {
-        target_role: targetRole,
-      })
+      const result = await api.post<ResumeFeedback>(
+        `/api/resumes/${selectedId}/analyze`,
+        {
+          request_id: requestId,
+          provider,
+          consent,
+          allow_local_fallback: allowFallback,
+          target_role: targetRole,
+        },
+        { signal: controller.signal },
+      )
       const fb = await api.get<ResumeFeedback[]>(
         `/api/resumes/${selectedId}/feedbacks`,
       )
-      setFeedbacks(fb.data)
-      setMsg('Analysis complete.')
+      setFeedbacks([
+        result.data,
+        ...fb.data.filter((item) => item.id !== result.data.id),
+      ])
+      setMsg(
+        `Analysis complete with ${result.data.execution?.provider_used ?? provider}.`,
+      )
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { detail?: string } } }
       setMsg(ax.response?.data?.detail ?? 'Analysis failed — check OPENAI_API_KEY on server')
     } finally {
+      activeRequest.current = null
       setLoading(false)
     }
+  }
+
+  async function cancelAnalysis() {
+    const active = activeRequest.current
+    if (!active) return
+    try {
+      await api.post(`/api/ai/requests/${active.id}/cancel`)
+    } catch {
+      // The request can finish or be cancelled before this acknowledgement arrives.
+    }
+    active.controller.abort()
+    setMsg(
+      'Cancellation requested. Any provider call already in flight may still be billed, but its result will not be saved.',
+    )
   }
 
   return (
@@ -150,14 +192,40 @@ export function ResumesPage() {
             onChange={(e) => setTargetRole(e.target.value)}
             className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
+          <AIProviderControls
+            provider={provider}
+            consent={consent}
+            allowFallback={allowFallback}
+            disabled={loading}
+            onProviderChange={setProvider}
+            onConsentChange={setConsent}
+            onFallbackChange={setAllowFallback}
+          />
           <button
             type="button"
-            disabled={!selectedId || loading}
+            disabled={
+              !selectedId ||
+              loading ||
+              (provider === 'openai' && !consent)
+            }
             onClick={runAnalyze}
             className="mt-3 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? 'Working…' : 'Run AI analysis'}
+            {loading
+              ? 'Working…'
+              : provider === 'openai'
+                ? 'Run OpenAI analysis'
+                : 'Run local demo'}
           </button>
+          {loading && provider === 'openai' && (
+            <button
+              type="button"
+              onClick={() => void cancelAnalysis()}
+              className="ml-2 mt-3 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+            >
+              Cancel
+            </button>
+          )}
 
           {feedbacks[0] && (
             <div className="mt-6 space-y-4 text-sm">
@@ -168,6 +236,14 @@ export function ResumesPage() {
                 </span>
               </div>
               <p className="text-slate-300">{feedbacks[0].summary}</p>
+              {feedbacks[0].execution && (
+                <p className="rounded-md border border-slate-700 bg-slate-950/70 p-2 text-xs text-slate-400">
+                  Provider: {feedbacks[0].execution.provider_used}
+                  {feedbacks[0].execution.fallback_reason
+                    ? ` · fallback reason: ${feedbacks[0].execution.fallback_reason}`
+                    : ''}
+                </p>
+              )}
               <div>
                 <h4 className="text-xs font-semibold uppercase text-emerald-400">
                   Strengths

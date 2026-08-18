@@ -6,13 +6,22 @@ backend/**/__pycache__/
 backend/*.db
 *.db
 backend/.env
+backend/.env.local
+backend/.env.*.local
 backend/.pip-cache/
 
 # Node
 frontend/node_modules/
 frontend/dist/
 frontend/.env
+frontend/.env.local
+frontend/.env.*.local
 frontend/.npm-cache/
+
+# Root environment overrides
+.env
+.env.local
+.env.*.local
 
 # OS / IDE
 .DS_Store

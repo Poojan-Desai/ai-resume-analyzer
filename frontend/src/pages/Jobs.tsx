@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
+import {
+  AIProviderControls,
+  type AIProvider,
+} from '../components/AIProviderControls'
 import type {
+  AIExecution,
   CoverLetter,
   JobMatch,
   JobPosting,
@@ -20,8 +25,16 @@ export function JobsPage() {
   const [company, setCompany] = useState('')
   const [description, setDescription] = useState('')
   const [tone, setTone] = useState('professional')
+  const [provider, setProvider] = useState<AIProvider>('local')
+  const [consent, setConsent] = useState(false)
+  const [allowFallback, setAllowFallback] = useState(true)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [lastExecution, setLastExecution] = useState<AIExecution | null>(null)
+  const activeRequest = useRef<{
+    id: string
+    controller: AbortController
+  } | null>(null)
 
   const [match, setMatch] = useState<JobMatch | null>(null)
   const [letter, setLetter] = useState<CoverLetter | null>(null)
@@ -66,16 +79,29 @@ export function JobsPage() {
     }
     setLoading(true)
     setMsg(null)
+    const requestId = crypto.randomUUID()
+    const controller = new AbortController()
+    activeRequest.current = { id: requestId, controller }
     try {
-      const { data } = await api.post<JobMatch>(`/api/jobs/${jobId}/match`, {
-        resume_id: resumeId,
-      })
+      const { data } = await api.post<JobMatch>(
+        `/api/jobs/${jobId}/match`,
+        {
+          resume_id: resumeId,
+          request_id: requestId,
+          provider,
+          consent,
+          allow_local_fallback: allowFallback,
+        },
+        { signal: controller.signal },
+      )
       setMatch(data)
-      setMsg('Match computed.')
+      setLastExecution(data.execution ?? null)
+      setMsg(`Match computed with ${data.execution?.provider_used ?? provider}.`)
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { detail?: string } } }
       setMsg(ax.response?.data?.detail ?? 'Match failed')
     } finally {
+      activeRequest.current = null
       setLoading(false)
     }
   }
@@ -87,17 +113,32 @@ export function JobsPage() {
     }
     setLoading(true)
     setMsg(null)
+    const requestId = crypto.randomUUID()
+    const controller = new AbortController()
+    activeRequest.current = { id: requestId, controller }
     try {
       const { data } = await api.post<CoverLetter>(
         `/api/jobs/${jobId}/cover-letter`,
-        { resume_id: resumeId, tone },
+        {
+          resume_id: resumeId,
+          tone,
+          request_id: requestId,
+          provider,
+          consent,
+          allow_local_fallback: allowFallback,
+        },
+        { signal: controller.signal },
       )
       setLetter(data)
-      setMsg('Cover letter generated.')
+      setLastExecution(data.execution ?? null)
+      setMsg(
+        `Cover letter generated with ${data.execution?.provider_used ?? provider}.`,
+      )
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { detail?: string } } }
       setMsg(ax.response?.data?.detail ?? 'Cover letter failed')
     } finally {
+      activeRequest.current = null
       setLoading(false)
     }
   }
@@ -109,19 +150,47 @@ export function JobsPage() {
     }
     setLoading(true)
     setMsg(null)
+    const requestId = crypto.randomUUID()
+    const controller = new AbortController()
+    activeRequest.current = { id: requestId, controller }
     try {
       const { data } = await api.post<SkillGap>(
         `/api/jobs/${jobId}/skill-gap`,
-        { resume_id: resumeId },
+        {
+          resume_id: resumeId,
+          request_id: requestId,
+          provider,
+          consent,
+          allow_local_fallback: allowFallback,
+        },
+        { signal: controller.signal },
       )
       setGaps(data)
-      setMsg('Skill gap analysis done.')
+      setLastExecution(data.execution ?? null)
+      setMsg(
+        `Skill gap analysis completed with ${data.execution?.provider_used ?? provider}.`,
+      )
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { detail?: string } } }
       setMsg(ax.response?.data?.detail ?? 'Skill gap failed')
     } finally {
+      activeRequest.current = null
       setLoading(false)
     }
+  }
+
+  async function cancelAIRequest() {
+    const active = activeRequest.current
+    if (!active) return
+    try {
+      await api.post(`/api/ai/requests/${active.id}/cancel`)
+    } catch {
+      // The request may complete before the cancellation acknowledgement arrives.
+    }
+    active.controller.abort()
+    setMsg(
+      'Cancellation requested. An in-flight provider call may still be billed, but its result will not be saved.',
+    )
   }
 
   return (
@@ -213,11 +282,21 @@ export function JobsPage() {
             ))}
           </select>
 
+          <AIProviderControls
+            provider={provider}
+            consent={consent}
+            allowFallback={allowFallback}
+            disabled={loading}
+            onProviderChange={setProvider}
+            onConsentChange={setConsent}
+            onFallbackChange={setAllowFallback}
+          />
+
           <div className="mt-6 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={runMatch}
-              disabled={loading}
+              disabled={loading || (provider === 'openai' && !consent)}
               className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700"
             >
               Match score
@@ -225,7 +304,7 @@ export function JobsPage() {
             <button
               type="button"
               onClick={runCover}
-              disabled={loading}
+              disabled={loading || (provider === 'openai' && !consent)}
               className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700"
             >
               Cover letter
@@ -233,12 +312,30 @@ export function JobsPage() {
             <button
               type="button"
               onClick={runGaps}
-              disabled={loading}
+              disabled={loading || (provider === 'openai' && !consent)}
               className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700"
             >
               Skill gaps
             </button>
+            {loading && provider === 'openai' && (
+              <button
+                type="button"
+                onClick={() => void cancelAIRequest()}
+                className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+            )}
           </div>
+
+          {lastExecution && (
+            <p className="mt-4 rounded-md border border-slate-700 bg-slate-950/70 p-2 text-xs text-slate-400">
+              Provider: {lastExecution.provider_used}
+              {lastExecution.fallback_reason
+                ? ` · fallback reason: ${lastExecution.fallback_reason}`
+                : ''}
+            </p>
+          )}
 
           <div className="mt-4">
             <label className="text-xs text-slate-400">Cover letter tone</label>

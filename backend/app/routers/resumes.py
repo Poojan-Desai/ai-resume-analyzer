@@ -11,7 +11,13 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import Resume, ResumeFeedback
-from app.schemas import ResumeAnalyzeBody, ResumeFeedbackOut, ResumeListItem, ResumeOut
+from app.schemas import (
+    AIExecutionOut,
+    ResumeAnalyzeBody,
+    ResumeFeedbackOut,
+    ResumeListItem,
+    ResumeOut,
+)
 from app.services import ai_service
 from app.services.resume_parser import ResumeParseError, extract_resume_text
 
@@ -36,7 +42,7 @@ async def upload_resume(
     try:
         text = extract_resume_text(file.filename, data)
     except ResumeParseError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     row = Resume(filename=file.filename, extracted_text=text)
     db.add(row)
@@ -61,7 +67,9 @@ def get_resume(resume_id: int, db: Session = Depends(get_db)):
     return row
 
 
-def _feedback_to_schema(fb: ResumeFeedback) -> ResumeFeedbackOut:
+def _feedback_to_schema(
+    fb: ResumeFeedback, execution: AIExecutionOut | None = None
+) -> ResumeFeedbackOut:
     data = json.loads(fb.payload_json)
     return ResumeFeedbackOut(
         id=fb.id,
@@ -72,6 +80,7 @@ def _feedback_to_schema(fb: ResumeFeedback) -> ResumeFeedbackOut:
         overall_score=float(data.get("overall_score") or 0),
         summary=data.get("summary") or "",
         created_at=fb.created_at,
+        execution=execution,
     )
 
 
@@ -88,20 +97,29 @@ def analyze_resume_endpoint(
     if not row:
         raise HTTPException(status_code=404, detail="Resume not found.")
 
-    target = (body.target_role if body else "") or ""
+    options = body or ResumeAnalyzeBody()
 
     try:
-        raw = ai_service.analyze_resume(row.extracted_text, target_role=target)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"AI request failed: {e!s}")
+        result = ai_service.execute_resume_analysis(
+            db,
+            request_uid=str(options.request_id),
+            provider=options.provider,
+            consent=options.consent,
+            allow_local_fallback=options.allow_local_fallback,
+            resume_id=row.id,
+            resume_text=row.extracted_text,
+            target_role=options.target_role,
+        )
+    except ai_service.AIServiceError as e:
+        raise HTTPException(
+            status_code=ai_service.http_status_for_error(e), detail=str(e)
+        ) from e
 
-    fb = ResumeFeedback(resume_id=row.id, payload_json=json.dumps(raw))
+    fb = ResumeFeedback(resume_id=row.id, payload_json=json.dumps(result.payload))
     db.add(fb)
     db.commit()
     db.refresh(fb)
-    return _feedback_to_schema(fb)
+    return _feedback_to_schema(fb, AIExecutionOut.model_validate(result.execution))
 
 
 @router.get("/{resume_id}/feedbacks", response_model=list[ResumeFeedbackOut])

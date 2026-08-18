@@ -1,5 +1,29 @@
 /** Shared API response shapes (mirror backend/schemas where useful). */
 
+export type AIExecution = {
+  request_id: string
+  requested_provider: string
+  provider_used: string
+  status: string
+  model: string
+  fallback_reason: string | null
+  estimated_cost_cents: number
+  actual_cost_cents: number | null
+}
+
+export type AIStatus = {
+  configured: boolean
+  enabled: boolean
+  provider: string
+  model: string
+  monthly_budget_cents: number
+  monthly_reserved_or_spent_cents: number
+  monthly_request_limit: number
+  requests_this_month: number
+  estimated_maximum_workflow_cents: number
+  local_demo_available: boolean
+}
+
 export type ResumeListItem = {
   id: number
   filename: string
@@ -17,6 +41,7 @@ export type ResumeFeedback = {
   overall_score: number
   summary: string
   created_at: string
+  execution?: AIExecution | null
 }
 
 export type JobPosting = {
@@ -36,6 +61,7 @@ export type JobMatch = {
   gaps: string[]
   summary: string
   created_at: string
+  execution?: AIExecution | null
 }
 
 export type CoverLetter = {
@@ -44,6 +70,7 @@ export type CoverLetter = {
   job_id: number
   content: string
   created_at: string
+  execution?: AIExecution | null
 }
 
 export type SkillGap = {
@@ -54,6 +81,7 @@ export type SkillGap = {
   suggested_resources: string[]
   priority_order: string[]
   created_at: string
+  execution?: AIExecution | null
 }
 
 export type Application = {

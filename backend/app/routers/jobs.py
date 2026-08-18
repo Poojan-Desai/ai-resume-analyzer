@@ -3,12 +3,14 @@ Job postings and AI features that pair a resume with a job description.
 """
 
 import json
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import CoverLetter, JobMatch, JobPosting, Resume, SkillGapAnalysis
 from app.schemas import (
+    AIExecutionOut,
     CoverLetterBody,
     CoverLetterOut,
     JobCreate,
@@ -26,7 +28,9 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 @router.post("", response_model=JobOut)
 def create_job(body: JobCreate, db: Session = Depends(get_db)):
     """Save a job title, company, and full job description text."""
-    row = JobPosting(title=body.title, company=body.company, description=body.description)
+    row = JobPosting(
+        title=body.title, company=body.company, description=body.description
+    )
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -75,23 +79,35 @@ def match_resume(
         raise HTTPException(status_code=404, detail="Resume not found.")
 
     try:
-        raw = ai_service.match_resume_to_job(resume.extracted_text, job.description)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"AI request failed: {e!s}")
+        result = ai_service.execute_job_match(
+            db,
+            request_uid=str(body.request_id),
+            provider=body.provider,
+            consent=body.consent,
+            allow_local_fallback=body.allow_local_fallback,
+            resume_id=resume.id,
+            job_id=job.id,
+            resume_text=resume.extracted_text,
+            job_description=job.description,
+        )
+    except ai_service.AIServiceError as e:
+        raise HTTPException(
+            status_code=ai_service.http_status_for_error(e), detail=str(e)
+        ) from e
 
-    score = float(raw.get("score") or 0)
+    score = float(result.payload.get("score") or 0)
     row = JobMatch(
         resume_id=resume.id,
         job_id=job.id,
         score=score,
-        payload_json=json.dumps(raw),
+        payload_json=json.dumps(result.payload),
     )
     db.add(row)
     db.commit()
     db.refresh(row)
-    return _match_to_schema(row)
+    output = _match_to_schema(row)
+    output.execution = AIExecutionOut.model_validate(result.execution)
+    return output
 
 
 @router.post("/{job_id}/cover-letter", response_model=CoverLetterOut)
@@ -109,19 +125,28 @@ def cover_letter(
         raise HTTPException(status_code=404, detail="Resume not found.")
 
     try:
-        text = ai_service.generate_cover_letter(
-            resume.extracted_text,
-            job.description,
+        result = ai_service.execute_cover_letter(
+            db,
+            request_uid=str(body.request_id),
+            provider=body.provider,
+            consent=body.consent,
+            allow_local_fallback=body.allow_local_fallback,
+            resume_id=resume.id,
+            job_id=job.id,
+            resume_text=resume.extracted_text,
+            job_description=job.description,
             company=job.company or "the company",
             role_title=job.title or "the role",
             tone=body.tone,
         )
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"AI request failed: {e!s}")
+    except ai_service.AIServiceError as e:
+        raise HTTPException(
+            status_code=ai_service.http_status_for_error(e), detail=str(e)
+        ) from e
 
-    row = CoverLetter(resume_id=resume.id, job_id=job.id, content=text)
+    row = CoverLetter(
+        resume_id=resume.id, job_id=job.id, content=str(result.payload["content"])
+    )
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -131,6 +156,7 @@ def cover_letter(
         job_id=row.job_id,
         content=row.content,
         created_at=row.created_at,
+        execution=AIExecutionOut.model_validate(result.execution),
     )
 
 
@@ -162,21 +188,33 @@ def skill_gap(
         raise HTTPException(status_code=404, detail="Resume not found.")
 
     try:
-        raw = ai_service.skill_gap_analysis(resume.extracted_text, job.description)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"AI request failed: {e!s}")
+        result = ai_service.execute_skill_gap(
+            db,
+            request_uid=str(body.request_id),
+            provider=body.provider,
+            consent=body.consent,
+            allow_local_fallback=body.allow_local_fallback,
+            resume_id=resume.id,
+            job_id=job.id,
+            resume_text=resume.extracted_text,
+            job_description=job.description,
+        )
+    except ai_service.AIServiceError as e:
+        raise HTTPException(
+            status_code=ai_service.http_status_for_error(e), detail=str(e)
+        ) from e
 
     row = SkillGapAnalysis(
         resume_id=resume.id,
         job_id=job.id,
-        payload_json=json.dumps(raw),
+        payload_json=json.dumps(result.payload),
     )
     db.add(row)
     db.commit()
     db.refresh(row)
-    return _skill_to_schema(row)
+    output = _skill_to_schema(row)
+    output.execution = AIExecutionOut.model_validate(result.execution)
+    return output
 
 
 @router.get("/{job_id}/matches", response_model=list[JobMatchOut])

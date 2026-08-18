@@ -9,8 +9,8 @@ from sqlalchemy.pool import StaticPool
 os.environ.setdefault("OPENAI_API_KEY", "")
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 
-from app.database import Base, get_db  # noqa: E402
-from app.main import app  # noqa: E402
+from app.database import Base, get_db
+from app.main import app
 
 
 @pytest.fixture()

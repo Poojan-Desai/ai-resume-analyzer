@@ -43,7 +43,9 @@ def get_application(app_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/{app_id}", response_model=ApplicationOut)
-def update_application(app_id: int, body: ApplicationUpdate, db: Session = Depends(get_db)):
+def update_application(
+    app_id: int, body: ApplicationUpdate, db: Session = Depends(get_db)
+):
     row = db.get(Application, app_id)
     if not row:
         raise HTTPException(status_code=404, detail="Application not found.")

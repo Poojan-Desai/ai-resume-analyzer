@@ -3,10 +3,9 @@ SQLAlchemy engine, session factory, and Base for ORM models.
 """
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import settings
-
 
 # SQLite needs check_same_thread=False when used with FastAPI async workers
 connect_args = {}

@@ -40,9 +40,7 @@ def dashboard(db: Session = Depends(get_db)):
             }
         )
 
-    recent_m = (
-        db.query(JobMatch).order_by(JobMatch.created_at.desc()).limit(5).all()
-    )
+    recent_m = db.query(JobMatch).order_by(JobMatch.created_at.desc()).limit(5).all()
     recent_matches = []
     for m in recent_m:
         data = json.loads(m.payload_json)

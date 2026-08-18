@@ -4,8 +4,8 @@ Extract plain text from PDF and DOCX resume files.
 
 from io import BytesIO
 
-from pypdf import PdfReader
 from docx import Document
+from pypdf import PdfReader
 
 
 class ResumeParseError(Exception):
@@ -45,6 +45,8 @@ def extract_resume_text(filename: str, data: bytes) -> str:
         raise ResumeParseError("Unsupported file type. Use PDF or DOCX.")
 
     if not text:
-        raise ResumeParseError("Could not extract text from the file. Try another export or format.")
+        raise ResumeParseError(
+            "Could not extract text from the file. Try another export or format."
+        )
 
     return text
