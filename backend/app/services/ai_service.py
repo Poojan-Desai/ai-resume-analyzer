@@ -8,6 +8,7 @@ from typing import Any
 from openai import OpenAI
 
 from app.config import settings
+from app.schemas import JobMatchResult, ResumeAnalysisResult, SkillGapResult
 
 
 def _client() -> OpenAI:
@@ -60,7 +61,7 @@ def analyze_resume(resume_text: str, target_role: str = "") -> dict[str, Any]:
     )
     extra = f" Target role context (may be empty): {target_role}" if target_role else ""
     user = f"Resume text:\n---\n{resume_text[:12000]}\n---{extra}"
-    return _chat_json(system, user)
+    return ResumeAnalysisResult.model_validate(_chat_json(system, user)).model_dump()
 
 
 def match_resume_to_job(resume_text: str, job_description: str) -> dict[str, Any]:
@@ -75,7 +76,7 @@ def match_resume_to_job(resume_text: str, job_description: str) -> dict[str, Any
     user = (
         f"RESUME:\n{resume_text[:8000]}\n\nJOB DESCRIPTION:\n{job_description[:8000]}"
     )
-    return _chat_json(system, user)
+    return JobMatchResult.model_validate(_chat_json(system, user)).model_dump()
 
 
 def skill_gap_analysis(resume_text: str, job_description: str) -> dict[str, Any]:
@@ -90,7 +91,7 @@ def skill_gap_analysis(resume_text: str, job_description: str) -> dict[str, Any]
     user = (
         f"RESUME:\n{resume_text[:8000]}\n\nJOB:\n{job_description[:8000]}"
     )
-    return _chat_json(system, user)
+    return SkillGapResult.model_validate(_chat_json(system, user)).model_dump()
 
 
 def generate_cover_letter(

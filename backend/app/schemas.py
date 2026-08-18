@@ -50,6 +50,18 @@ class ResumeAnalyzeBody(BaseModel):
     target_role: str = ""
 
 
+class ResumeAnalysisResult(BaseModel):
+    """Validated model output before it is persisted as feedback."""
+
+    strengths: list[str]
+    weaknesses: list[str]
+    improvements: list[str]
+    overall_score: float = Field(ge=0, le=100)
+    summary: str = Field(min_length=1)
+
+    model_config = {"extra": "forbid"}
+
+
 class ResumeFeedbackOut(BaseModel):
     id: int
     resume_id: int
@@ -64,6 +76,15 @@ class ResumeFeedbackOut(BaseModel):
 # --- AI: job match ---
 class JobMatchBody(BaseModel):
     resume_id: int
+
+
+class JobMatchResult(BaseModel):
+    score: float = Field(ge=0, le=100)
+    matched_keywords: list[str]
+    gaps: list[str]
+    summary: str = Field(min_length=1)
+
+    model_config = {"extra": "forbid"}
 
 
 class JobMatchOut(BaseModel):
@@ -94,6 +115,14 @@ class CoverLetterOut(BaseModel):
 # --- Skill gap ---
 class SkillGapBody(BaseModel):
     resume_id: int
+
+
+class SkillGapResult(BaseModel):
+    missing_skills: list[str]
+    suggested_resources: list[str]
+    priority_order: list[str]
+
+    model_config = {"extra": "forbid"}
 
 
 class SkillGapOut(BaseModel):
