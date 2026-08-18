@@ -4,6 +4,7 @@ backend/.audit-venv/
 backend/__pycache__/
 backend/**/__pycache__/
 backend/*.db
+*.db
 backend/.env
 backend/.pip-cache/
 

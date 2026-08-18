@@ -11,6 +11,7 @@ A full-stack portfolio project for organizing a job search: upload a PDF or DOCX
 - SQLAlchemy models for resumes, jobs, AI artifacts, and applications
 - Server-side PDF/DOCX text extraction
 - Server-only OpenAI integration for resume feedback, job matching, skill-gap suggestions, and cover-letter drafts
+- Strict Pydantic validation before structured model output is persisted
 - SQLite for local development, with a configurable database URL
 - Automated backend API/parser tests plus frontend lint and production build checks
 
@@ -96,7 +97,7 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ## Verification
 
-Backend:
+Backend (run from `backend/` so all local artifacts stay isolated there):
 
 ```bash
 cd backend
@@ -124,9 +125,9 @@ npm run build
 
 - Add user authentication and per-user authorization
 - Replace development table creation with database migrations
-- Validate model output against strict schemas and add retry/error handling
+- Add bounded retry/error handling for transient provider failures
 - Add encrypted object storage and data-retention controls
-- Add integration tests with a mocked AI provider
+- Extend mocked-provider coverage to cover every AI route
 
 ## License
 
